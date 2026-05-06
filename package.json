@@ -1,0 +1,21 @@
+{
+  "name": "postgress",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "postinstall": "prisma generate",
+    "dev": "nodemon server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "pg": "^8.20.0",
+    "prisma": "^5.22.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
