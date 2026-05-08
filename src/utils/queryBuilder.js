@@ -1,13 +1,20 @@
 export const queryBuilder = async ({
     model,
     query,
+
     searchableFields = [],
     filterableFields = [],
+
     sortableFields = [],
+
+    numberFields = [],
+    booleanFields = [],
+
     defaultSort = { created_at: "desc" },
 }) => {
     // Pagination
     const page = parseInt(query.page) || 1;
+
     const limit = Math.min(parseInt(query.limit) || 24, 100);
 
     const skip = (page - 1) * limit;
@@ -25,10 +32,9 @@ export const queryBuilder = async ({
             ? query.order
             : Object.values(defaultSort)[0];
 
-    // WHERE conditions
     const where = {};
 
-    // Searchable fields
+    // Search
     if (search && searchableFields.length) {
         where.OR = searchableFields.map((field) => ({
             [field]: {
@@ -38,14 +44,28 @@ export const queryBuilder = async ({
         }));
     }
 
-    // Exact filters
+    // Filters
     filterableFields.forEach((field) => {
-        if (query[field]) {
-            where[field] = query[field];
+        if (query[field] !== undefined) {
+            let value = query[field];
+
+            // Convert numbers
+            if (numberFields.includes(field)) {
+                value = parseInt(value);
+
+                if (isNaN(value)) return;
+            }
+
+            // Convert booleans
+            if (booleanFields.includes(field)) {
+                value = value === "true";
+            }
+
+            where[field] = value;
         }
     });
 
-    // Query DB
+    // Query
     const [data, total] = await Promise.all([
         model.findMany({
             where,
@@ -55,11 +75,13 @@ export const queryBuilder = async ({
                 [sortBy]: order,
             },
         }),
+
         model.count({ where }),
     ]);
 
     return {
         data,
+
         meta: {
             total,
             page,
