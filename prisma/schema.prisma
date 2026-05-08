@@ -12,27 +12,40 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Organization {
+  id           Int      @id @default(autoincrement())
+  name         String
+  company_logo String?
+  slug         String   @unique
+  created_at   DateTime @default(now())
+  users        User[]
+}
+
 model User {
-  id            Int       @id @default(autoincrement())
-  name          String
-  email         String    @unique
-  phone_number  String?
-  created_at    DateTime  @default(now())
-  gender        Gender?
-  age           Int?
+  id        Int     @id @default(autoincrement())
+  name      String?
+  email     String  @unique
+  password  String?
+  google_id String? @unique
+  avatar    String?
+
+  organization_id Int?
+  role_id         Int?
+
+  organization Organization? @relation(fields: [organization_id], references: [id])
+
+  role Role? @relation(fields: [role_id], references: [id])
+
+  created_at DateTime @default(now())
 }
 
-enum Gender {
-  Male
-  Female
-  Other
-}
+model Role {
+  id Int @id @default(autoincrement())
 
-model post {
-  id          Int     @id @default(autoincrement())
-  title       String
-  content     String?
-  published   Boolean @default(false)
-  author_id   Int
-  created_at  DateTime @default(now())
+  name        String  @unique
+  description String?
+
+  created_at DateTime @default(now())
+
+  users User[]
 }

@@ -81,44 +81,31 @@ export const deleteUser = async (req, res) => {
     }
 };
 
-export const createPost = async (req, res) => {
-    try {
-        const post = await prisma.post.create({
-            data: req.body,
-        });
 
-        res.status(201).json(post);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: "Failed to create post" });
-    }
-};
+// const getPosts = async (req, res) => {
+//     try {
+//         const result = await queryBuilder({
+//             model: prisma.post,
+//             query: req.query,
 
+//             searchableFields: ["title", "content"],
 
-export const getPosts = async (req, res) => {
-    try {
-        const result = await queryBuilder({
-            model: prisma.post,
-            query: req.query,
+//             filterableFields: ["author_id", "published", "id"],
 
-            searchableFields: ["title", "content"],
+//             numberFields: ["author_id", "id"],
 
-            filterableFields: ["author_id", "published", "id"],
+//             booleanFields: ["published"],
 
-            numberFields: ["author_id", "id"],
+//             sortableFields: ["created_at", "title"],
 
-            booleanFields: ["published"],
+//             defaultSort: {
+//                 created_at: "desc",
+//             },
+//         });
 
-            sortableFields: ["created_at", "title"],
-
-            defaultSort: {
-                created_at: "desc",
-            },
-        });
-
-        res.json(result);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: "Failed to fetch users" });
-    }
-};
+//         res.json(result);
+//     } catch (err) {
+//         console.error(err);
+//         res.status(500).json({ error: "Failed to fetch users" });
+//     }
+// };
