@@ -4,19 +4,21 @@ export const queryBuilder = async ({
 
     searchableFields = [],
     filterableFields = [],
-
     sortableFields = [],
 
     numberFields = [],
     booleanFields = [],
 
-    defaultSort = { created_at: "desc" },
+    defaultSort = { createdAt: "desc" },
+
+    where = {},
+    include,
+    select,
 }) => {
+
     // Pagination
     const page = parseInt(query.page) || 1;
-
     const limit = Math.min(parseInt(query.limit) || 24, 100);
-
     const skip = (page - 1) * limit;
 
     // Search
@@ -32,11 +34,12 @@ export const queryBuilder = async ({
             ? query.order
             : Object.values(defaultSort)[0];
 
-    const where = {};
+    // Clone existing where
+    const filters = { ...where };
 
     // Search
     if (search && searchableFields.length) {
-        where.OR = searchableFields.map((field) => ({
+        filters.OR = searchableFields.map((field) => ({
             [field]: {
                 contains: search,
                 mode: "insensitive",
@@ -46,29 +49,30 @@ export const queryBuilder = async ({
 
     // Filters
     filterableFields.forEach((field) => {
-        if (query[field] !== undefined) {
-            let value = query[field];
 
-            // Convert numbers
-            if (numberFields.includes(field)) {
-                value = parseInt(value);
+        if (query[field] === undefined) return;
 
-                if (isNaN(value)) return;
-            }
+        let value = query[field];
 
-            // Convert booleans
-            if (booleanFields.includes(field)) {
-                value = value === "true";
-            }
+        if (numberFields.includes(field)) {
+            value = Number(value);
 
-            where[field] = value;
+            if (isNaN(value)) return;
         }
+
+        if (booleanFields.includes(field)) {
+            value = value === "true";
+        }
+
+        filters[field] = value;
     });
 
-    // Query
     const [data, total] = await Promise.all([
+
         model.findMany({
-            where,
+            where: filters,
+            include,
+            select,
             skip,
             take: limit,
             orderBy: {
@@ -76,12 +80,13 @@ export const queryBuilder = async ({
             },
         }),
 
-        model.count({ where }),
+        model.count({
+            where: filters,
+        }),
     ]);
 
     return {
         data,
-
         meta: {
             total,
             page,

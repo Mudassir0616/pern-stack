@@ -80,7 +80,7 @@ async function main() {
             name: "Super Admin",
             email: "admin@example.com",
             password: hashedPassword,
-            role_id: superAdminRole.id,
+            roleId: superAdminRole.id,
         },
     });
 

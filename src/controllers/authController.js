@@ -1,42 +1,72 @@
 import bcrypt from "bcryptjs";
-import prisma from "../configs/prisma.js";
-import { generateRefreshToken, generateToken } from "../utils/jwt.js";
 import { OAuth2Client } from "google-auth-library";
+import prisma from "../configs/prisma.js";
+import { generateToken } from "../utils/jwt.js";
 
-const client = new OAuth2Client(
-    process.env.GOOGLE_CLIENT_ID
-);
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+const publicUser = {
+    id: true,
+    name: true,
+    username: true,
+    email: true,
+    avatar: true,
+    bio: true,
+    createdAt: true,
+};
 
 export const register = async (req, res) => {
     try {
-        const { name, email, password } = req.body;
+        const {
+            name,
+            username,
+            email,
+            password,
+        } = req.body;
 
-        const existingUser = await prisma.user.findUnique({
-            where: { email },
+        if (!email || !password) {
+            return res.status(400).json({
+                message: "Email and password required",
+            });
+        }
+
+        const existingUser = await prisma.user.findFirst({
+            where: {
+                OR: [
+                    { email },
+                    username ? { username } : undefined,
+                ].filter(Boolean),
+            },
         });
 
         if (existingUser) {
             return res.status(400).json({
-                message: "User already exists",
+                message: "Email or username already exists",
             });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
+        // Create the local account with a hashed password.
         const user = await prisma.user.create({
             data: {
                 name,
+                username,
                 email,
                 password: hashedPassword,
             },
+            select: publicUser,
         });
 
         res.status(201).json({
             message: "User created",
+            token: generateToken(user),
             user,
         });
     } catch (error) {
+        console.error(error);
         res.status(500).json({
+            message: "Failed to register user",
             error: error.message,
         });
     }
@@ -46,11 +76,17 @@ export const login = async (req, res) => {
     try {
         const { email, password } = req.body;
 
+        if (!email || !password) {
+            return res.status(400).json({
+                message: "Email and password required",
+            });
+        }
+
         const user = await prisma.user.findUnique({
             where: { email },
         });
 
-        if (!user) {
+        if (!user || !user.password) {
             return res.status(400).json({
                 message: "Invalid credentials",
             });
@@ -63,72 +99,24 @@ export const login = async (req, res) => {
 
         if (!isMatch) {
             return res.status(400).json({
-                message: "Incorrect Password!",
+                message: "Invalid credentials",
             });
         }
 
-        const token = generateToken(user);
-        const refreshToken = generateRefreshToken(user);
+        const {
+            password: _,
+            ...safeUser
+        } = user;
 
         res.json({
-            token,
-            refreshToken,
-            user: {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-            },
+            token: generateToken(user),
+            user: safeUser,
         });
     } catch (error) {
+        console.error(error);
         res.status(500).json({
-            error: error.message,
+            message: "Failed to login",
         });
-    }
-};
-
-export const refreshToken = async (req, res) => {
-    try {
-
-        const { refreshToken } = req.body;
-
-        if (!refreshToken) {
-            return res.status(401).json({
-                message: "Refresh token missing",
-            });
-        }
-
-        // Verify token
-        const decoded = jwt.verify(
-            refreshToken,
-            process.env.REFRESH_TOKEN_SECRET
-        );
-
-        // Find user
-        const user = await prisma.user.findUnique({
-            where: {
-                id: decoded.id,
-            },
-        });
-
-        if (!user || user.refresh_token !== refreshToken) {
-            return res.status(403).json({
-                message: "Invalid refresh token",
-            });
-        }
-
-        // Generate new access token
-        const newAccessToken = generateToken(user);
-
-        res.json({
-            accessToken: newAccessToken,
-        });
-
-    } catch (error) {
-
-        return res.status(403).json({
-            message: "Token expired or invalid",
-        });
-
     }
 };
 
@@ -149,37 +137,29 @@ export const googleLogin = async (req, res) => {
 
         const payload = ticket.getPayload();
 
-        const {
-            sub,
-            email,
-            name,
-            picture,
-        } = payload;
-
-        let user = await prisma.user.findUnique({
-            where: { email },
+        // Create the user on first Google login.
+        const user = await prisma.user.upsert({
+            where: {
+                email: payload.email,
+            },
+            update: {
+                googleId: payload.sub,
+                avatar: payload.picture,
+                name: payload.name,
+            },
+            create: {
+                email: payload.email,
+                name: payload.name,
+                googleId: payload.sub,
+                avatar: payload.picture,
+            },
+            select: publicUser,
         });
-
-        // Create user if not exists
-        if (!user) {
-            user = await prisma.user.create({
-                data: {
-                    email,
-                    name,
-                    google_id: sub,
-                    avatar: picture,
-                },
-            });
-        }
-
-        // Generate YOUR JWT
-        const jwtToken = generateToken(user);
 
         res.json({
-            token: jwtToken,
+            token: generateToken(user),
             user,
         });
-
     } catch (error) {
         console.error(error);
 

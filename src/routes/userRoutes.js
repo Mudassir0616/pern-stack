@@ -1,11 +1,18 @@
 import express from "express";
-import { createUser, deleteUser, getUsers } from "../controllers/userController.js";
+import {
+    getMe,
+    getUserById,
+    getUsers,
+    updateMe,
+} from "../controllers/userController.js";
 import { protect } from "../middlewares/authMiddleware.js";
+import { upload } from "../middlewares/uploadMiddleware.js";
 
 const router = express.Router();
 
-router.post("/", createUser);
+router.get("/me", protect, getMe);
+router.patch("/me", protect, upload.single("avatar"), updateMe);
 router.get("/", protect, getUsers);
-router.delete("/:id", deleteUser);
+router.get("/:id", protect, getUserById);
 
 export default router;

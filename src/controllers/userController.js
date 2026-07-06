@@ -1,111 +1,182 @@
 import prisma from "../configs/prisma.js";
-import { queryBuilder } from "../utils/queryBuilder.js";
 
-export const createUser = async (req, res) => {
-    try {
-        const { name, email } = req.body;
+const publicUser = {
+    id: true,
+    name: true,
+    username: true,
+    email: true,
+    avatar: true,
+    bio: true,
+    createdAt: true,
+    _count: {
+        select: {
+            posts: true,
+            friends: true,
+        },
+    },
+};
 
-        const user = await prisma.user.create({
-            data: { name, email },
-        });
+export const getMe = async (req, res) => {
+    const user = await prisma.user.findUnique({
+        where: {
+            id: req.user.id,
+        },
+        select: publicUser,
+    });
 
-        res.status(201).json(user);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: "Failed to create user" });
-    }
+    res.json({ user });
 };
 
 export const getUsers = async (req, res) => {
     try {
-        const result = await queryBuilder({
-            model: prisma.user,
-            query: req.query,
+        const page = parseInt(req.query.page) || 1;
+        const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+        const search = req.query.search?.trim();
 
-            searchableFields: ["name", "email"],
+        const where = search
+            ? {
+                OR: [
+                    {
+                        name: {
+                            contains: search,
+                            mode: "insensitive",
+                        },
+                    },
+                    {
+                        username: {
+                            contains: search,
+                            mode: "insensitive",
+                        },
+                    },
+                ],
+            }
+            : {};
 
-            filterableFields: ["gender", "id"],
+        const [users, total] = await Promise.all([
+            prisma.user.findMany({
+                where,
+                select: publicUser,
+                orderBy: {
+                    createdAt: "desc",
+                },
+                skip: (page - 1) * limit,
+                take: limit,
+            }),
+            prisma.user.count({ where }),
+        ]);
 
-            numberFields: ["id"],
-
-            sortableFields: ["created_at", "age", "name"],
-
-            defaultSort: {
-                created_at: "desc",
+        res.json({
+            data: users,
+            meta: {
+                total,
+                page,
+                limit,
+                totalPages: Math.ceil(total / limit),
             },
         });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            message: "Failed to fetch users",
+        });
+    }
+};
 
-        res.json(result);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: "Failed to fetch users" });
+export const getUserById = async (req, res) => {
+    try {
+        const id = Number(req.params.id);
+
+        if (!id) {
+            return res.status(400).json({
+                message: "Invalid user id",
+            });
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { id },
+            select: publicUser,
+        });
+
+        if (!user) {
+            return res.status(404).json({
+                message: "User not found",
+            });
+        }
+
+        res.json({ user });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            message: "Failed to fetch user",
+        });
+    }
+};
+
+export const updateMe = async (req, res) => {
+    try {
+        const {
+            name,
+            username,
+            bio,
+        } = req.body;
+
+        const avatar = req.file
+            ? `${req.protocol}://${req.get("host")}/assets/${req.file.filename}`
+            : undefined;
+
+        // Only profile fields can be changed here.
+        const user = await prisma.user.update({
+            where: {
+                id: req.user.id,
+            },
+            data: {
+                name,
+                username,
+                bio,
+                avatar,
+            },
+            select: publicUser,
+        });
+
+        res.json({
+            message: "Profile updated",
+            user,
+        });
+    } catch (error) {
+        if (error.code === "P2002") {
+            return res.status(400).json({
+                message: "Username already exists",
+            });
+        }
+
+        console.error(error);
+        res.status(500).json({
+            message: "Failed to update profile",
+        });
     }
 };
 
 export const deleteUser = async (req, res) => {
     try {
-        const id = parseInt(req.params.id);
+        const id = Number(req.params.id);
 
-        // Validate ID
-        if (isNaN(id)) {
+        if (!id) {
             return res.status(400).json({
-                error: "Invalid user id",
+                message: "Invalid user id",
             });
         }
 
-        // Check existence
-        const existingUser = await prisma.user.findUnique({
-            where: { id },
-        });
-
-        if (!existingUser) {
-            return res.status(404).json({
-                error: "User not found",
-            });
-        }
-
-        // Delete
         await prisma.user.delete({
             where: { id },
         });
 
-        return res.status(200).json({
-            message: "User deleted successfully",
+        res.json({
+            message: "User deleted",
         });
-    } catch (err) {
-        console.error(err);
-
-        return res.status(500).json({
-            error: "Failed to delete user",
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            message: "Failed to delete user",
         });
     }
-};
-
-
-// const getPosts = async (req, res) => {
-//     try {
-//         const result = await queryBuilder({
-//             model: prisma.post,
-//             query: req.query,
-
-//             searchableFields: ["title", "content"],
-
-//             filterableFields: ["author_id", "published", "id"],
-
-//             numberFields: ["author_id", "id"],
-
-//             booleanFields: ["published"],
-
-//             sortableFields: ["created_at", "title"],
-
-//             defaultSort: {
-//                 created_at: "desc",
-//             },
-//         });
-
-//         res.json(result);
-//     } catch (err) {
-//         console.error(err);
-//         res.status(500).json({ error: "Failed to fetch users" });
-//     }
-// };
+}
