@@ -1,9 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AppShell from "../../components/AppShell";
 import { chatApi, getToken, userApi } from "../../lib/api";
+import { useSocket } from "../../components/SocketProvider";
 
 const displayName = (user) =>
     user?.name || user?.username || user?.email || `User ${user?.id || ""}`;
@@ -22,6 +23,8 @@ const formatMessageTime = (value) => {
 
 export default function ChatsPage() {
     const router = useRouter();
+    const socket = useSocket();
+
     const [user, setUser] = useState(null);
     const [chats, setChats] = useState([]);
     const [messages, setMessages] = useState([]);
@@ -34,12 +37,30 @@ export default function ChatsPage() {
     const [sending, setSending] = useState(false);
     const [error, setError] = useState("");
 
+
+    // Mirror the latest state so our single socket listener can read current
+    // values instead of the ones captured when it was attached.
+    const activeChatIdRef = useRef(null);
+    const chatsRef = useRef([]);
+
+    useEffect(() => { activeChatIdRef.current = activeChatId; }, [activeChatId]);
+    useEffect(() => { chatsRef.current = chats; }, [chats]);
+
     const getOtherUser = (chat) =>
         chat?.senderId === user?.id ? chat.receiver : chat.sender;
 
     const loadMessages = async (chatId) => {
         const data = await chatApi.messages(chatId);
         setMessages(data.data || []);
+    };
+
+    const refreshSidebar = async () => {
+        try {
+            const data = await chatApi.list();
+            setChats(data.data || []);
+        } catch (err) {
+            setError(err.message);
+        }
     };
 
     const selectChat = async (chat) => {
@@ -98,6 +119,57 @@ export default function ChatsPage() {
         });
     }, [user]);
 
+    useEffect(() => {
+        if (!socket) return; // provider might still be connecting
+
+        // Server emits this to BOTH participants after saving. Shape matches the
+        // backend emit: { chatId, message }.
+        const handleNewMessage = ({ chatId, message }) => {
+            // (a) If it belongs to the chat open on screen, append it live.
+            //     Dedupe by id: the sender already added it optimistically on send,
+            //     AND the server echoes it back to the sender too — without this
+            //     guard they'd see their own message twice.
+            if (chatId === activeChatIdRef.current) {
+                setMessages((current) =>
+                    current.some((m) => m.id === message.id)
+                        ? current
+                        : [...current, message]
+                );
+            }
+
+            // (b) Update the sidebar preview + move that chat to the top.
+            const known = chatsRef.current.some((c) => c.id === chatId);
+            if (!known) {
+                // A conversation we don't have yet (someone messaged us for the
+                // first time) → pull the fresh list so it shows up.
+                refreshSidebar();
+                return;
+            }
+            setChats((current) => {
+                const target = current.find((c) => c.id === chatId);
+                const rest = current.filter((c) => c.id !== chatId);
+                return [{ ...target, messages: [message] }, ...rest];
+            });
+        };
+
+        // After a dropped connection reconnects, we may have missed messages while
+        // offline — refetch the list and the open chat to catch up.
+        const handleReconnect = () => {
+            refreshSidebar();
+            if (activeChatIdRef.current) loadMessages(activeChatIdRef.current);
+        };
+
+        socket.on("new-message", handleNewMessage);
+        socket.on("connect", handleReconnect);
+
+        // Remove listeners on cleanup, or each re-run stacks another copy and you
+        // get duplicated messages.
+        return () => {
+            socket.off("new-message", handleNewMessage);
+            socket.off("connect", handleReconnect);
+        };
+    }, [socket]); // only re-subscribe if the socket instance itself changes
+
     const searchUsers = async (event) => {
         event.preventDefault();
         setError("");
@@ -145,14 +217,29 @@ export default function ChatsPage() {
             });
 
             setContent("");
-            setMessages((current) => [...current, data.message]);
-            await loadChats(data.chatId);
+            // Ensure the active chat id is set — important when this was a NEW
+            // conversation (activeChatId was null until the server created it).
+            setActiveChatId(data.chatId);
+
+            // Optimistic append so your own message shows instantly. Deduped by id,
+            // so the server's echo (step 4a) is ignored rather than doubling it.
+            setMessages((current) =>
+                current.some((m) => m.id === data.message.id)
+                    ? current
+                    : [...current, data.message]
+            );
+
+            // Refresh the list preview + ordering (not the open chat's messages).
+            await refreshSidebar();
+
         } catch (err) {
             setError(err.message);
         } finally {
             setSending(false);
         }
     };
+
+    console.log('socket', socket)
 
     return (
         <AppShell>

@@ -137,6 +137,9 @@ export const sendMessage = async (req, res) => {
         const { receiverId, content } = req.body;
         const receiver = Number(receiverId);
 
+        // ---- NEW: broadcast the saved message in real time ----
+        const io = req.app.get("io"); // the shared instance from server.js
+
         if (!receiver || !content?.trim()) {
             return res.status(400).json({
                 message: "Receiver and message are required",
@@ -215,6 +218,20 @@ export const sendMessage = async (req, res) => {
             }),
         ]);
 
+        // chat.senderId and chat.receiverId are the two participants of this
+        // conversation (whoever STARTED the chat vs the other person — order
+        // doesn't matter here). Emitting to both of their personal rooms
+        // delivers the new message to every device each has connected...
+        io.to(`user:${chat.senderId}`)
+            .to(`user:${chat.receiverId}`)
+            .emit("new-message", {
+                message,
+                chatId: chat.id,
+            });
+        // ...including the SENDER's own tabs — which is why the client that
+        // sent it doesn't need to manually append it (see frontend note).
+        // -------------------------------------------------------
+
         res.status(201).json({
             message,
             chatId: chat.id,
@@ -222,7 +239,6 @@ export const sendMessage = async (req, res) => {
 
     } catch (error) {
         console.error(error);
-
         res.status(500).json({
             message: "Failed to send message",
         });
